@@ -74,14 +74,24 @@ RUN wget -q https://github.com/opencv/opencv/archive/${OPENCV_VERSION}.zip -O op
 
 # ---------------------------------------------------------------------------
 # 2. Download ONNX Runtime (pre-built binary - fastest)
+#    Auto-detect architecture: x64 for Intel/AMD, aarch64 for ARM64
 # ---------------------------------------------------------------------------
 ARG ONNX_VERSION=1.17.0
 
-RUN wget -q https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERSION}/onnxruntime-linux-x64-${ONNX_VERSION}.tgz \
-    && tar xzf onnxruntime-linux-x64-${ONNX_VERSION}.tgz \
-    && cp -r onnxruntime-linux-x64-${ONNX_VERSION}/include/* /usr/local/include/ \
-    && cp -r onnxruntime-linux-x64-${ONNX_VERSION}/lib/* /usr/local/lib/ \
-    && rm -rf onnxruntime-linux-x64-${ONNX_VERSION}*
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then \
+        ONNX_ARCH="x64"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
+        ONNX_ARCH="aarch64"; \
+    else \
+        echo "Unsupported architecture: $ARCH" && exit 1; \
+    fi && \
+    echo "Downloading ONNX Runtime for ${ONNX_ARCH}..." && \
+    wget -q https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERSION}/onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}.tgz \
+    && tar xzf onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}.tgz \
+    && cp -r onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}/include/* /usr/local/include/ \
+    && cp -r onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}/lib/* /usr/local/lib/ \
+    && rm -rf onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}*
 
 RUN ldconfig
 
