@@ -816,10 +816,14 @@ int main(int argc, char* argv[]) {
     session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
     
     // =============================================================
-    // MEMORY OPTIMIZATION (Critical for ARM/low memory)
+    // ARM64 SPEED OPTIMIZATION
     // =============================================================
-    session_options.DisableCpuMemArena();
-    session_options.DisableMemPattern();
+    // Keep memory arena ENABLED for faster inference (10-20% speedup)
+    // Memory arena pre-allocates buffers for reuse across inference calls
+    
+    // NOTE: If you need to reduce memory, uncomment these lines:
+    // session_options.DisableCpuMemArena();
+    // session_options.DisableMemPattern();
     
     // =============================================================
     // ARM64 OPTIMIZATION: XNNPACK Execution Provider
@@ -847,8 +851,8 @@ int main(int argc, char* argv[]) {
 
     Ort::Session session(env, args.model_path.c_str(), session_options);
     
-    // Use OrtDeviceAllocator instead of OrtArenaAllocator for lower memory
-    auto memory_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
+    // Use OrtArenaAllocator for faster repeated allocations
+    auto memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
     time_onnx_init = std::chrono::duration<double, std::milli>(
         std::chrono::high_resolution_clock::now() - t0).count();
     
