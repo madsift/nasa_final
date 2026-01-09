@@ -148,13 +148,15 @@ COPY cpp/include/watershed_static.h cpp/include/label.h cpp/include/lightgbm_ran
      cpp/include/ranking_features_multires.hpp cpp/include/polar.hpp ./include/
 
 # Build eval3_static (scoring/evaluation binary)
-RUN g++ -O3 -std=c++17 \
+RUN find /usr/local/include -name "onnxruntime_cxx_api.h" && \
+    g++ -O3 -std=c++17 \
     -o eval3_static \
     src/eval3_static.cpp src/watershed_static.cpp \
     -I./include \
     -I/usr/local/include/opencv4 \
     -I/usr/local/include \
     -I/usr/local/include/onnxruntime \
+    -I/usr/local/include/onnxruntime/core/session \
     -L/usr/local/lib \
     -lopencv_core -lopencv_imgproc -lopencv_imgcodecs \
     -lonnxruntime \
@@ -169,6 +171,7 @@ RUN g++ -O3 -std=c++17 \
     -I/usr/local/include/opencv4 \
     -I/usr/local/include \
     -I/usr/local/include/onnxruntime \
+    -I/usr/local/include/onnxruntime/core/session \
     -L/usr/local/lib \
     -lopencv_core -lopencv_imgproc -lopencv_imgcodecs \
     -lonnxruntime \
@@ -191,6 +194,7 @@ RUN ARCH=$(uname -m) && \
     -I/usr/local/include/opencv4 \
     -I/usr/local/include \
     -I/usr/local/include/onnxruntime \
+    -I/usr/local/include/onnxruntime/core/session \
     -L/usr/local/lib \
     -lopencv_core -lopencv_imgproc -lopencv_imgcodecs \
     -lonnxruntime \
