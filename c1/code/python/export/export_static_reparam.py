@@ -31,19 +31,32 @@ def optimize_for_arm64(onnx_path, output_path):
     Optimizations applied:
     - Graph optimization (constant folding, redundant node elimination)
     - Operator fusion (Conv+BN, MatMul+Add, etc.)
-    - Layout optimization for ARM NEON
+    
+    Note: Using ORT_ENABLE_BASIC to avoid hardware-specific transforms
+    that could cause issues across different ARM64 chips.
     """
     try:
+        import shutil
         sess_options = ort.SessionOptions()
         
-        # Enable all optimizations
-        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        # Use BASIC level - EXTENDED/ALL can produce hardware-specific models
+        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
         
         # Save optimized model to file
         sess_options.optimized_model_filepath = output_path
         
         # Create session (this triggers optimization and saves)
         _ = ort.InferenceSession(onnx_path, sess_options, providers=['CPUExecutionProvider'])
+        
+        # Check if output was created and has reasonable size
+        import os
+        if os.path.exists(output_path):
+            orig_size = os.path.getsize(onnx_path)
+            opt_size = os.path.getsize(output_path)
+            if opt_size < orig_size * 0.5:
+                print(f"⚠️ Warning: Optimized model is much smaller ({opt_size} vs {orig_size} bytes)")
+                print(f"   This may indicate over-optimization. Using original model.")
+                shutil.copy(onnx_path, output_path)
         
         print(f"✅ ARM64-optimized model saved: {output_path}")
         return True
@@ -160,16 +173,6 @@ def main(args):
         # Note: Direct FP16 export requires post-processing
         # We export FP32 and convert afterwards for better compatibility
         print("\n[INFO] FP16: Will convert after FP32 export for better compatibility")
-    elif args.dtype == 'bf16':
-        # BFloat16 - requires PyTorch 1.10+ and opset 19+
-        if hasattr(torch, 'bfloat16'):
-            export_dtype = torch.bfloat16
-            model = model.to(torch.bfloat16)
-            dummy_input = dummy_input.to(torch.bfloat16)
-            print("\n[INFO] BF16: Model and input converted to BFloat16")
-        else:
-            print("\n⚠️ BFloat16 not supported in this PyTorch version, using FP32")
-            args.dtype = 'fp32'
 
     # ---------------------------------------------------------
     # 5. Export to ONNX
@@ -178,10 +181,10 @@ def main(args):
     
     # Determine output path
     base_output = args.output.replace('.onnx', '')
-    onnx_path = f"{base_output}_fp32.onnx" if args.dtype != 'fp32' else args.output
+    onnx_path = f"{base_output}_fp32.onnx" if args.dtype == 'fp16' else args.output
     
-    # Use opset 19 for BF16 support, otherwise 17
-    opset = 19 if args.dtype == 'bf16' else 17
+    # Use opset 18 - minimum required by PyTorch 2.x exporter
+    opset = 18
 
     torch.onnx.export(
         model,
@@ -204,11 +207,6 @@ def main(args):
         fp16_path = f"{base_output}_fp16.onnx"
         if convert_onnx_to_fp16(onnx_path, fp16_path):
             final_onnx_path = fp16_path
-    elif args.dtype == 'bf16':
-        final_onnx_path = f"{base_output}_bf16.onnx"
-        import shutil
-        shutil.move(onnx_path, final_onnx_path)
-        print(f"Renamed to {final_onnx_path}")
 
     # ---------------------------------------------------------
     # 7. ARM64 Optimization (if requested)
@@ -333,8 +331,8 @@ if __name__ == "__main__":
     
     # New optimization options
     parser.add_argument("--dtype", type=str, default="fp32",
-                        choices=["fp32", "fp16", "bf16"],
-                        help="Export precision: fp32 (default), fp16 (half), bf16 (bfloat16)")
+                        choices=["fp32", "fp16"],
+                        help="Export precision: fp32 (default), fp16 (half). Note: bf16 not supported by ONNX Runtime CPU.")
     parser.add_argument("--optimize_arm64", action="store_true",
                         help="Apply ARM64-specific graph optimizations (constant folding, op fusion)")
     
