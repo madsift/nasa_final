@@ -226,8 +226,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Ensure python/pip aliases exist (Ubuntu 24.04 uses python3)
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
-# Create non-root user
-RUN useradd -m -u 1000 crater
+# Create non-root user (remove default ubuntu user first to avoid UID 1000 conflict)
+RUN userdel -r ubuntu || true && useradd -m -u 1000 crater
 WORKDIR /app
 
 # ---------------------------------------------------------------------------
