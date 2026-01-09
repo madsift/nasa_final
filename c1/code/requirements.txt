@@ -29,6 +29,6 @@ lightgbm>=4.0.0
 
 # ONNX (for model export)
 onnx>=1.14.0
-onnxruntime>=1.17.0
+onnxruntime>=1.20.0
 onnxscript>=0.1.0
 onnxconverter-common>=1.14.0

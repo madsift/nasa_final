@@ -75,8 +75,9 @@ RUN wget -q https://github.com/opencv/opencv/archive/${OPENCV_VERSION}.zip -O op
 # ---------------------------------------------------------------------------
 # 2. Download ONNX Runtime (pre-built binary - fastest)
 #    Auto-detect architecture: x64 for Intel/AMD, aarch64 for ARM64
+#    NOTE: Version 1.18.0+ required for IR version 10 (opset 18 models)
 # ---------------------------------------------------------------------------
-ARG ONNX_VERSION=1.17.0
+ARG ONNX_VERSION=1.20.1
 
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then \
