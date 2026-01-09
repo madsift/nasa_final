@@ -80,7 +80,7 @@ RUN wget -q https://github.com/opencv/opencv/archive/${OPENCV_VERSION}.zip -O op
 ARG ONNX_VERSION=1.20.1
 
 # Install additional build dependencies for ONNX Runtime
-# Ubuntu 24.04 has CMake 3.28+ and compatible toolchain
+# Ubuntu 24.04 has CMake 3.28+ and Eigen 3.4.0 compatible with ORT 1.20
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     python3 \
@@ -88,6 +88,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-dev \
     python3-numpy \
     ninja-build \
+    libeigen3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Clone ONNX Runtime
@@ -97,6 +98,7 @@ RUN git clone --depth 1 --branch v${ONNX_VERSION} --recursive \
 WORKDIR /build/onnxruntime
 
 # Build ONNX Runtime with XNNPACK on ARM64, without on x86
+# Using system Eigen to bypass GitLab hash mismatch issues
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "aarch64" ]; then \
         echo "Building ONNX Runtime with XNNPACK for ARM64..." && \
@@ -106,6 +108,8 @@ RUN ARCH=$(uname -m) && \
             --use_xnnpack \
             --skip_tests \
             --allow_running_as_root \
+            --use_preinstalled_eigen \
+            --eigen_path /usr/include/eigen3 \
             --cmake_extra_defines CMAKE_INSTALL_PREFIX=/usr/local ; \
     else \
         echo "Building ONNX Runtime (no XNNPACK) for x86_64..." && \
@@ -114,6 +118,8 @@ RUN ARCH=$(uname -m) && \
             --parallel $(nproc) \
             --skip_tests \
             --allow_running_as_root \
+            --use_preinstalled_eigen \
+            --eigen_path /usr/include/eigen3 \
             --cmake_extra_defines CMAKE_INSTALL_PREFIX=/usr/local ; \
     fi
 
