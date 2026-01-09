@@ -777,7 +777,8 @@ int main(int argc, char* argv[]) {
     };
     
     TimingStats time_image_loading, time_resizing, time_dem_gradient;
-    TimingStats time_model_inference, time_ellipse_extraction, time_ranker_scoring;
+    TimingStats time_input_normalization, time_model_inference, time_output_upscale;
+    TimingStats time_ellipse_extraction, time_ranker_scoring;
     TimingStats time_polar_fitting;
     double time_config_loading = 0, time_onnx_init = 0;
     
@@ -948,27 +949,23 @@ int main(int argc, char* argv[]) {
             std::chrono::high_resolution_clock::now() - t_stage).count();
         time_dem_gradient.add(t_dem_grad);
 
-        // === MODEL INFERENCE (Tiled or Full) ===
+        // === INPUT NORMALIZATION ===
         t_stage = std::chrono::high_resolution_clock::now();
         std::vector<cv::Mat> full_planes(OUT_CLASSES);
+        std::vector<cv::Mat> input_planes;
         
         bool use_tiled = (args.tile_w > 0);
         
         if (use_tiled) {
-            // ===============================================
-            // TILED INFERENCE (No padding, Gaussian blending)
-            // ===============================================
             // Normalize all input channels
             cv::Mat img_float;
             img_resized.convertTo(img_float, CV_32F, 1.0 / 255.0);
             cv::Mat img_norm = (img_float - 0.5f) / 0.5f;
             
             // Build input planes based on CHANNELS configuration
-            std::vector<cv::Mat> input_planes;
             if constexpr (CHANNELS == 1) {
                 input_planes.push_back(img_norm);
             } else if constexpr (CHANNELS == 2) {
-                // Normalize gradient (already in [0,1])
                 cv::Mat grad_norm = (grad - 0.5f) / 0.5f;
                 input_planes.push_back(img_norm);
                 input_planes.push_back(grad_norm);
@@ -980,24 +977,24 @@ int main(int argc, char* argv[]) {
                 input_planes.push_back(dem_norm);
                 input_planes.push_back(grad_norm);
             }
-            
-            // Run tiled inference
-            std::vector<cv::Mat> tiled_output = tiled_inference(
+        }
+        double t_norm = std::chrono::duration<double, std::milli>(
+            std::chrono::high_resolution_clock::now() - t_stage).count();
+        time_input_normalization.add(t_norm);
+
+        // === MODEL INFERENCE (Pure ONNX only) ===
+        t_stage = std::chrono::high_resolution_clock::now();
+        std::vector<cv::Mat> tiled_output;
+        
+        if (use_tiled) {
+            // Run tiled inference - THIS IS THE PURE ONNX INFERENCE
+            tiled_output = tiled_inference(
                 session, memory_info, input_planes,
                 args.tile_h, args.tile_w,
                 args.overlap_h, args.overlap_w
             );
-            
-            // Resize each channel to original resolution
-            for (int c = 0; c < OUT_CLASSES; ++c) {
-                int interp = (c == 2) ? cv::INTER_NEAREST : cv::INTER_LINEAR;
-                cv::resize(tiled_output[c], full_planes[c], cv::Size(w_orig, h_orig), 0, 0, interp);
-            }
         } else {
-            // ===============================================
             // FULL IMAGE INFERENCE - DEPRECATED
-            // Tiling is always required for memory-efficient inference.
-            // ===============================================
             fprintf(stderr, "[ERROR] Full-image mode is disabled. Please use --tile-size to enable tiling.\\n");
             fprintf(stderr, "        Example: --tile-size 672x544 or --tile-size 544x416\\n");
             continue;  // Skip this image
@@ -1006,6 +1003,17 @@ int main(int argc, char* argv[]) {
         double t_inference = std::chrono::duration<double, std::milli>(
             std::chrono::high_resolution_clock::now() - t_stage).count();
         time_model_inference.add(t_inference);
+
+        // === OUTPUT UPSCALE ===
+        t_stage = std::chrono::high_resolution_clock::now();
+        // Resize each channel to original resolution
+        for (int c = 0; c < OUT_CLASSES; ++c) {
+            int interp = (c == 2) ? cv::INTER_NEAREST : cv::INTER_LINEAR;
+            cv::resize(tiled_output[c], full_planes[c], cv::Size(w_orig, h_orig), 0, 0, interp);
+        }
+        double t_upscale = std::chrono::duration<double, std::milli>(
+            std::chrono::high_resolution_clock::now() - t_stage).count();
+        time_output_upscale.add(t_upscale);
 
         // === ELLIPSE EXTRACTION ===
         t_stage = std::chrono::high_resolution_clock::now();
@@ -1164,7 +1172,8 @@ int main(int argc, char* argv[]) {
     // DETAILED TIMING REPORT (matching Python)
     // ============================================
     double total_tracked = (time_image_loading.total + time_resizing.total + 
-                           time_dem_gradient.total + time_model_inference.total + 
+                           time_dem_gradient.total + time_input_normalization.total +
+                           time_model_inference.total + time_output_upscale.total +
                            time_ellipse_extraction.total + time_ranker_scoring.total +
                            time_polar_fitting.total) / 1000.0;  // to seconds
     double untracked = total_duration_s - total_tracked;
@@ -1196,7 +1205,9 @@ int main(int argc, char* argv[]) {
               << std::setw(6) << "    %" << std::endl;
     std::cout << "----------------------------------------------------------------------" << std::endl;
     
-    printRow("  model_inference", time_model_inference, total_duration_s);
+    printRow("  model_inference (ONNX)", time_model_inference, total_duration_s);
+    printRow("  input_normalization", time_input_normalization, total_duration_s);
+    printRow("  output_upscale", time_output_upscale, total_duration_s);
     printRow("  ellipse_extraction", time_ellipse_extraction, total_duration_s);
     if (args.use_polar) {
         printRow("  polar_fitting", time_polar_fitting, total_duration_s);

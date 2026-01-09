@@ -133,11 +133,11 @@ RUN g++ -O3 -std=c++17 \
     && strip test
 
 # Build test_arm64 (ARM64-optimized inference binary)
-# Uses -march=native on ARM64 for NEON SIMD optimizations
+# Uses Graviton3/M8G optimized flags: fp16+dotprod for faster vectorization
 # On x86_64 this will still compile but without ARM-specific opts
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "aarch64" ]; then \
-        MARCH_FLAG="-march=native"; \
+        MARCH_FLAG="-march=armv8.2-a+fp16+dotprod -ffast-math -flto"; \
     else \
         MARCH_FLAG=""; \
     fi && \
