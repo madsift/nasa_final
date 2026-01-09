@@ -32,8 +32,7 @@ lightgbm>=4.0.0
 scikit-image>=0.21.0
 
 # ONNX (for model export)
-# NOTE: onnxruntime pinned to match Docker-built version (avoid IR version mismatch)
 onnx>=1.14.0
-onnxruntime>=1.16.0,<1.17.0
+onnxruntime>=1.20.0
 onnxscript>=0.1.0
 onnxconverter-common>=1.14.0
