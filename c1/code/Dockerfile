@@ -107,7 +107,7 @@ RUN ARCH=$(uname -m) && \
             --skip_tests \
             --skip_submodule_sync \
             --allow_running_as_root \
-            --cmake_extra_defines CMAKE_INSTALL_PREFIX=/usr/local ; \
+            --cmake_extra_defines CMAKE_INSTALL_PREFIX=/usr/local CMAKE_POLICY_VERSION_MINIMUM=3.5 ; \
     else \
         echo "Building ONNX Runtime (no XNNPACK) for x86_64..." && \
         ./build.sh --config Release \
@@ -116,7 +116,7 @@ RUN ARCH=$(uname -m) && \
             --skip_tests \
             --skip_submodule_sync \
             --allow_running_as_root \
-            --cmake_extra_defines CMAKE_INSTALL_PREFIX=/usr/local ; \
+            --cmake_extra_defines CMAKE_INSTALL_PREFIX=/usr/local CMAKE_POLICY_VERSION_MINIMUM=3.5 ; \
     fi
 
 # Install built libraries
