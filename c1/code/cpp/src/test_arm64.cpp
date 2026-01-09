@@ -717,7 +717,7 @@ Args parse_args(int argc, char* argv[]) {
         else if (arg == "--solution-out" && i + 1 < argc) args.solution_out = argv[++i];
         else if (arg == "--input-res" && i + 1 < argc) args.input_res = std::stoi(argv[++i]);
         else if (arg == "--all") args.process_all = true;
-        else if (arg == "--xnnpack") args.use_xnnpack = true;  // ARM64 optimization
+        else if (arg == "--xnnpack" || arg == "--use-xnnpack") args.use_xnnpack = true;  // ARM64 optimization
         else if (arg == "--tile-size" && i + 1 < argc) {
             // Parse WxH format (e.g., "544x416" or "544,416" or just "544" for square)
             std::string ts = argv[++i];
@@ -834,14 +834,15 @@ int main(int argc, char* argv[]) {
     // speedups for Conv/MatMul operations on ARM64 CPUs.
     // Requires ONNX Runtime built with --use_xnnpack flag.
     std::string execution_provider = "CPU";
+    bool xnnpack_enabled = false;
     if (args.use_xnnpack) {
         #if defined(__ARM_NEON) || defined(__aarch64__)
         try {
             // XNNPACK execution provider options (empty for defaults)
             std::unordered_map<std::string, std::string> xnnpack_options;
             session_options.AppendExecutionProvider("XNNPACK", xnnpack_options);
-            std::cout << "[ARM64] XNNPACK execution provider ENABLED" << std::endl;
             execution_provider = "XNNPACK";
+            xnnpack_enabled = true;
         } catch (const Ort::Exception& e) {
             std::cout << "[ARM64] XNNPACK not available: " << e.what() << std::endl;
             std::cout << "[ARM64] Falling back to CPU provider" << std::endl;
@@ -866,6 +867,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Model: " << args.model_path << std::endl;
     std::cout << "Execution Provider: " << execution_provider << std::endl;
     std::cout << "NEON SIMD: " << (USE_ARM_NEON ? "ENABLED" : "disabled (x86)") << std::endl;
+    std::cout << "XNNPACK: " << (xnnpack_enabled ? "ENABLED" : "DISABLED") << std::endl;
     std::cout << "Ellipse fitting: " << (args.use_polar ? "POLAR" : "CV2") << std::endl;
     std::cout << "Ranker: " << (args.use_ranker ? "enabled" : "disabled") << std::endl;
     if (args.tile_w > 0) {
