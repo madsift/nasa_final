@@ -6,7 +6,7 @@ import torch.nn as nn
 import onnx
 import onnxruntime as ort
 import numpy as np
-from models_smp import CraterSMP_3Ch_RAM, CraterSMP, CraterSMP_GroupNorm
+from python.models.models_smp import CraterSMP_3Ch_RAM, CraterSMP, CraterSMP_GroupNorm
 
 def convert_onnx_to_fp16(onnx_path, output_path):
     """Convert ONNX model to FP16 using onnxconverter-common."""
