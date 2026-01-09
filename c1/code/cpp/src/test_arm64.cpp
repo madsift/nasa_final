@@ -45,6 +45,7 @@
 #include <fstream>
 #include <sstream>
 #include <map>
+#include <unordered_map>
 #include <set>
 #include <tuple>
 #include <filesystem>
@@ -831,18 +832,19 @@ int main(int argc, char* argv[]) {
     // =============================================================
     // XNNPACK is highly optimized for ARM NEON and provides significant
     // speedups for Conv/MatMul operations on ARM64 CPUs.
-    // Note: Requires ONNX Runtime built with XNNPACK support.
-    // On x86, this falls back to CPU provider gracefully.
+    // Requires ONNX Runtime built with --use_xnnpack flag.
     std::string execution_provider = "CPU";
     if (args.use_xnnpack) {
         #if defined(__ARM_NEON) || defined(__aarch64__)
         try {
-            // XNNPACK is optimized for ARM NEON
-            // session_options.AppendExecutionProvider("XNNPACK");  // Uncomment when XNNPACK is available
-            std::cout << "[ARM64] XNNPACK provider requested (ensure ORT is built with XNNPACK)" << std::endl;
+            // XNNPACK execution provider options (empty for defaults)
+            std::unordered_map<std::string, std::string> xnnpack_options;
+            session_options.AppendExecutionProvider("XNNPACK", xnnpack_options);
+            std::cout << "[ARM64] XNNPACK execution provider ENABLED" << std::endl;
             execution_provider = "XNNPACK";
-        } catch (...) {
-            std::cout << "[ARM64] XNNPACK not available, falling back to CPU" << std::endl;
+        } catch (const Ort::Exception& e) {
+            std::cout << "[ARM64] XNNPACK not available: " << e.what() << std::endl;
+            std::cout << "[ARM64] Falling back to CPU provider" << std::endl;
         }
         #else
         std::cout << "[x86] XNNPACK not available on x86, using CPU provider" << std::endl;

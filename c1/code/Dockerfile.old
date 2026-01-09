@@ -73,55 +73,26 @@ RUN wget -q https://github.com/opencv/opencv/archive/${OPENCV_VERSION}.zip -O op
     && cd .. && rm -rf opencv-${OPENCV_VERSION} opencv-build
 
 # ---------------------------------------------------------------------------
-# 2. Build ONNX Runtime from source WITH XNNPACK (ARM64-optimized)
-#    XNNPACK provides highly optimized ARM NEON kernels for Conv operations
-#    Build takes ~30-60 min but provides significant speedup on ARM64
+# 2. Download ONNX Runtime (pre-built binary - fastest)
+#    Auto-detect architecture: x64 for Intel/AMD, aarch64 for ARM64
+#    NOTE: Version 1.18.0+ required for IR version 10 (opset 18 models)
 # ---------------------------------------------------------------------------
 ARG ONNX_VERSION=1.20.1
 
-# Install additional build dependencies for ONNX Runtime
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    python3 \
-    python3-pip \
-    python3-dev \
-    python3-numpy \
-    ninja-build \
-    && rm -rf /var/lib/apt/lists/*
-
-# Clone ONNX Runtime
-RUN git clone --depth 1 --branch v${ONNX_VERSION} --recursive \
-    https://github.com/microsoft/onnxruntime.git /build/onnxruntime
-
-WORKDIR /build/onnxruntime
-
-# Build ONNX Runtime with XNNPACK on ARM64, without on x86
 RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "aarch64" ]; then \
-        echo "Building ONNX Runtime with XNNPACK for ARM64..." && \
-        ./build.sh --config Release \
-            --build_shared_lib \
-            --parallel $(nproc) \
-            --use_xnnpack \
-            --skip_tests \
-            --skip_submodule_sync \
-            --cmake_extra_defines CMAKE_INSTALL_PREFIX=/usr/local ; \
+    if [ "$ARCH" = "x86_64" ]; then \
+        ONNX_ARCH="x64"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
+        ONNX_ARCH="aarch64"; \
     else \
-        echo "Building ONNX Runtime (no XNNPACK) for x86_64..." && \
-        ./build.sh --config Release \
-            --build_shared_lib \
-            --parallel $(nproc) \
-            --skip_tests \
-            --skip_submodule_sync \
-            --cmake_extra_defines CMAKE_INSTALL_PREFIX=/usr/local ; \
-    fi
-
-# Install built libraries
-RUN cp -r /build/onnxruntime/build/Linux/Release/libonnxruntime*.so* /usr/local/lib/ && \
-    cp -r /build/onnxruntime/include/onnxruntime /usr/local/include/ && \
-    rm -rf /build/onnxruntime
-
-WORKDIR /build
+        echo "Unsupported architecture: $ARCH" && exit 1; \
+    fi && \
+    echo "Downloading ONNX Runtime for ${ONNX_ARCH}..." && \
+    wget -q https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERSION}/onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}.tgz \
+    && tar xzf onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}.tgz \
+    && cp -r onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}/include/* /usr/local/include/ \
+    && cp -r onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}/lib/* /usr/local/lib/ \
+    && rm -rf onnxruntime-linux-${ONNX_ARCH}-${ONNX_VERSION}*
 
 RUN ldconfig
 
