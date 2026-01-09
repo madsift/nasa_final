@@ -627,7 +627,7 @@ std::vector<Crater> extract_craters_cv2_adaptive_selection_rescue(
         );
 
         // Angular completeness filter
-        if (details.angular_completeness < 0.25f) continue;
+        if (details.angular_completeness < 0.35f) continue;
 
         // Rescue confidence
         float confidence_rescue = confidence;

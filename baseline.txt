@@ -1,0 +1,58 @@
+crater@d91a79b53dac:/app$ ./test --raw-dir /data/test/ --model models/best_672x544.onnx  --input-res 1296 --tile-size 672x544 --solution-out sol13-test-672.csv --limit-craters 12 --limit-images 50 --all
+[INFO] Memory log initialized: memory_debug.log
+
+=== CRATER DETECTION INFERENCE ===
+Model: models/best_672x544.onnx
+Ellipse fitting: CV2
+Ranker: disabled
+Tiling: 672x544 overlap 24x32
+
+Found 50 images to process
+
+[==================================================] 100.0% (50/50)
+
+==========================================
+INFERENCE SUMMARY (C++)
+Images Processed: 50
+Total Craters Found: 465
+Average Craters/Image: 9.3
+TOTAL EXECUTION TIME: 277.210 s
+==========================================
+
+                    DETAILED TIMING REPORT
+======================================================================
+
+[ONE-TIME INITIALIZATION COSTS]
+--------------------------------------------------
+  config_loading                :       0.01 ms
+  onnx_session_init             :      59.16 ms
+  TOTAL INIT                    :      59.55 ms
+
+[PER-IMAGE PROCESSING COSTS]
+----------------------------------------------------------------------
+  Stage                        |   Total(s) |   Mean(ms) |    Max(ms) |      %
+----------------------------------------------------------------------
+  model_inference              |     266.56 |    5331.12 |    5371.85 |   96.2%
+  ellipse_extraction           |       5.36 |     107.29 |     157.56 |    1.9%
+  ranker_scoring               |       0.00 |       0.00 |       0.00 |    0.0%
+  dem_gradient_creation        |       3.12 |      62.43 |      83.18 |    1.1%
+  image_loading                |       2.05 |      41.05 |      45.08 |    0.7%
+  resizing                     |       0.06 |       1.14 |       1.53 |    0.0%
+  (untracked overhead)         |       0.06 |       1.16 |            |    0.0%
+----------------------------------------------------------------------
+  TOTAL (end-to-end)           |     277.21 |    5544.19 |            | 100.0%
+
+  Images processed: 50
+  Average time per image: 5544.19 ms (5.54 s)
+
+--- MEMORY USAGE (RSS) ---
+Baseline:       73.5 MB
+Peak:           312.6 MB
+Mean during:    288.0 MB
+Min during:     250.5 MB
+Max during:     312.6 MB
+---------------------------
+
+Saved sol13-test-672.csv with predictions for 50 images.
+
+Memory debug log saved to: memory_debug.log
