@@ -205,7 +205,7 @@ RUN ARCH=$(uname -m) && \
 # ===========================================================================
 # STAGE 2: RUNTIME IMAGE
 # ===========================================================================
-FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
