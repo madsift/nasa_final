@@ -80,6 +80,7 @@ RUN wget -q https://github.com/opencv/opencv/archive/${OPENCV_VERSION}.zip -O op
 ARG ONNX_VERSION=1.20.1
 
 # Install additional build dependencies for ONNX Runtime
+# Including libeigen3-dev to bypass GitLab hash mismatch issues
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     python3 \
@@ -87,6 +88,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-dev \
     python3-numpy \
     ninja-build \
+    libeigen3-dev \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install --upgrade cmake>=3.28
 
@@ -97,6 +99,7 @@ RUN git clone --depth 1 --branch v${ONNX_VERSION} --recursive \
 WORKDIR /build/onnxruntime
 
 # Build ONNX Runtime with XNNPACK on ARM64, without on x86
+# Using --use_preinstalled_eigen to avoid GitLab hash mismatch issues
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "aarch64" ]; then \
         echo "Building ONNX Runtime with XNNPACK for ARM64..." && \
@@ -107,6 +110,8 @@ RUN ARCH=$(uname -m) && \
             --skip_tests \
             --skip_submodule_sync \
             --allow_running_as_root \
+            --use_preinstalled_eigen \
+            --eigen_path /usr/include/eigen3 \
             --cmake_extra_defines CMAKE_INSTALL_PREFIX=/usr/local CMAKE_POLICY_VERSION_MINIMUM=3.5 ; \
     else \
         echo "Building ONNX Runtime (no XNNPACK) for x86_64..." && \
@@ -116,6 +121,8 @@ RUN ARCH=$(uname -m) && \
             --skip_tests \
             --skip_submodule_sync \
             --allow_running_as_root \
+            --use_preinstalled_eigen \
+            --eigen_path /usr/include/eigen3 \
             --cmake_extra_defines CMAKE_INSTALL_PREFIX=/usr/local CMAKE_POLICY_VERSION_MINIMUM=3.5 ; \
     fi
 
