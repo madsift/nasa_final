@@ -21,6 +21,210 @@ class CraterSMP(nn.Module):
     def forward(self, x):
         return self.model(x)
 
+
+def replace_bn_with_gn(module, num_groups=8, _count=None):
+    """
+    Recursively replace all BatchNorm2d layers with GroupNorm.
+    
+    GroupNorm normalizes per-sample (not per-batch), making it robust
+    to distribution shift between training and test sets.
+    
+    Args:
+        module: PyTorch module to modify
+        num_groups: Number of groups for GroupNorm (8 is typical, must divide num_channels)
+        _count: Internal counter dict (do not pass manually)
+    
+    Returns:
+        Modified module with GroupNorm instead of BatchNorm
+    """
+    # Initialize counter on first call
+    if _count is None:
+        _count = {'replaced': 0}
+        is_root = True
+    else:
+        is_root = False
+    
+    for name, child in module.named_children():
+        if isinstance(child, nn.BatchNorm2d):
+            num_channels = child.num_features
+            # Ensure num_groups divides num_channels evenly
+            groups = min(num_groups, num_channels)
+            while num_channels % groups != 0 and groups > 1:
+                groups -= 1
+            
+            # Create GroupNorm with same number of channels
+            gn = nn.GroupNorm(
+                num_groups=groups,
+                num_channels=num_channels,
+                eps=child.eps,
+                affine=child.affine
+            )
+            
+            # Copy affine parameters if available
+            if child.affine and child.weight is not None:
+                gn.weight.data.copy_(child.weight.data)
+                gn.bias.data.copy_(child.bias.data)
+            
+            setattr(module, name, gn)
+            _count['replaced'] += 1
+        else:
+            # Recurse into child modules
+            replace_bn_with_gn(child, num_groups, _count)
+    
+    # Print count only on root call
+    if is_root:
+        print(f"[replace_bn_with_gn] Replaced {_count['replaced']} BatchNorm2d layers with GroupNorm")
+    
+    return module
+
+
+class CraterSMP_GroupNorm(nn.Module):
+    """
+    CraterSMP with GroupNorm instead of BatchNorm for distribution-shift robustness.
+    
+    BatchNorm uses batch statistics during training but frozen running stats during
+    inference. If test distribution differs from training, these stats are wrong.
+    
+    GroupNorm normalizes per-sample (independent of batch), so test-time behavior
+    is identical regardless of input distribution. This is critical when:
+    - Test images have different lighting conditions
+    - Test has different crater size distributions
+    - Test comes from different terrain/regions
+    
+    Usage:
+        model = CraterSMP_GroupNorm(backbone="mobileone_s2", in_channels=3, num_classes=3)
+        # Train from scratch - ImageNet weights will be converted
+    
+    Args:
+        backbone: Encoder backbone name (default: mobileone_s2)
+        in_channels: Number of input channels (default: 3 for Gray+DEM+Grad)
+        num_classes: Number of output classes (default: 3 for Core/Global/Rim)
+        num_groups: Number of groups for GroupNorm (default: 8)
+    """
+    
+    def __init__(self, backbone="mobileone_s2", in_channels=3, num_classes=3, num_groups=8):
+        super(CraterSMP_GroupNorm, self).__init__()
+        
+        # Create base SMP model with BatchNorm
+        self.model = smp.Unet(
+            encoder_name=backbone,
+            encoder_weights="imagenet",
+            in_channels=in_channels,
+            classes=num_classes,
+            activation=None
+        )
+        
+        # HYBRID APPROACH: Only replace BatchNorm in decoder and segmentation_head
+        # Keep encoder BatchNorm intact for MobileOne reparameterization compatibility
+        decoder_replaced = replace_bn_with_gn(self.model.decoder, num_groups=num_groups)
+        head_replaced = replace_bn_with_gn(self.model.segmentation_head, num_groups=num_groups)
+        
+        self.num_groups = num_groups
+        print(f"[CraterSMP_GroupNorm] Hybrid mode: GroupNorm in decoder/head only, encoder keeps BatchNorm for reparameterization")
+        
+        # Freeze encoder BatchNorm parameters (but keep in train mode for stability)
+        self.freeze_encoder_batchnorm()
+
+    def freeze_encoder_batchnorm(self):
+        """
+        Freeze BatchNorm parameters in the encoder but KEEP them in train mode.
+        
+        Why not eval() mode?
+        - eval() uses pretrained ImageNet running_mean/running_var
+        - Lunar images have very different distribution from ImageNet
+        - This causes numerical instability (NaN gradients)
+        
+        This approach:
+        - BN stays in train() mode -> uses current batch statistics (stable)
+        - gamma/beta frozen -> no parameter updates
+        - Running stats still update but that's fine since we're not using them
+        """
+        frozen_count = 0
+
+        for m in self.model.encoder.modules():
+            if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.SyncBatchNorm)):
+                # DON'T call m.eval() - keep using batch statistics
+                # Just freeze the learnable parameters
+                for p in m.parameters():
+                    p.requires_grad = False
+
+                frozen_count += 1
+
+        print(f"[CraterSMP_GroupNorm] Frozen {frozen_count} encoder BatchNorm parameters (kept in train mode)")
+
+    
+    def train(self, mode=True):
+        """
+        Standard train mode - no special handling needed since we don't force eval() on BN.
+        """
+        super().train(mode)
+        return self
+
+    def _encoder_forward(self, x):
+        """Wrapper for encoder forward to enable checkpointing."""
+        return self.model.encoder(x)
+    
+    def _decoder_forward(self, features):
+        """Wrapper for decoder forward to enable checkpointing."""
+        decoder_output = self.model.decoder(features)
+        return self.model.segmentation_head(decoder_output)
+
+    def forward(self, x):
+        features = self.model.encoder(x)
+        decoder_output = self.model.decoder(features)
+        masks = self.model.segmentation_head(decoder_output)
+        
+        return masks
+    
+    def load_from_batchnorm_checkpoint(self, checkpoint_path, strict=False):
+        """
+        Load weights from a BatchNorm-based checkpoint.
+        
+        BatchNorm running_mean/running_var will be ignored.
+        Affine weights (gamma/beta) will be copied to GroupNorm.
+        
+        Args:
+            checkpoint_path: Path to checkpoint file
+            strict: If True, raise error on missing/unexpected keys
+        
+        Returns:
+            Tuple of (missing_keys, unexpected_keys)
+        """
+        import os
+        if not os.path.exists(checkpoint_path):
+            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+        
+        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+        
+        # Handle different checkpoint formats
+        if 'state_dict' in checkpoint:
+            state_dict = checkpoint['state_dict']
+        elif 'model_state_dict' in checkpoint:
+            state_dict = checkpoint['model_state_dict']
+        else:
+            state_dict = checkpoint
+        
+        # Filter out BatchNorm running stats (not needed for GroupNorm)
+        filtered_state = {}
+        for k, v in state_dict.items():
+            if 'running_mean' in k or 'running_var' in k or 'num_batches_tracked' in k:
+                continue  # Skip BatchNorm running stats
+            filtered_state[k] = v
+        
+        # Try to load, mapping keys if needed
+        missing, unexpected = self.load_state_dict(filtered_state, strict=strict)
+        
+        # Filter out expected differences
+        missing_filtered = [k for k in missing if 'running' not in k and 'num_batches' not in k]
+        
+        if missing_filtered:
+            print(f"[Warning] Missing keys: {missing_filtered[:5]}{'...' if len(missing_filtered) > 5 else ''}")
+        if unexpected:
+            print(f"[Warning] Unexpected keys: {unexpected[:5]}{'...' if len(unexpected) > 5 else ''}")
+        
+        print(f"[CraterSMP_GroupNorm] Loaded weights from {checkpoint_path}")
+        return missing_filtered, unexpected
+
 # --- 1. EFFICIENT RAM (Memory Optimized + AMP Safe + ONNX Exportable) ---
 # All high-impact fixes applied:
 # - Fix #1: Shadow mask as bias BEFORE softmax (proper attention distribution)
@@ -181,7 +385,7 @@ if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
     # Initialize
-    model = CraterSMP_3Ch_RAM("mobileone_s2", num_classes=3).to(device)
+    model = CraterSMP_GroupNorm("mobileone_s2", num_classes=3).to(device)
     
     # Batch Size 6
     x = torch.randn(4, 3, 544, 416).to(device)
