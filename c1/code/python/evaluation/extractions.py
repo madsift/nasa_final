@@ -10,8 +10,6 @@ import math
 import time  # Added for timing
 from tqdm import tqdm
 from pathlib import Path
-import sfs
-
 
 from skimage import measure, segmentation, morphology
 from skimage.measure import CircleModel
