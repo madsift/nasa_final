@@ -77,10 +77,9 @@ RUN wget -q https://github.com/opencv/opencv/archive/${OPENCV_VERSION}.zip -O op
 #    XNNPACK provides highly optimized ARM NEON kernels for Conv operations
 #    Build takes ~30-60 min but provides significant speedup on ARM64
 # ---------------------------------------------------------------------------
-ARG ONNX_VERSION=1.20.1
+ARG ONNX_VERSION=1.16.3
 
 # Install additional build dependencies for ONNX Runtime
-# Ubuntu 24.04 has CMake 3.28+ and Eigen 3.4.0 compatible with ORT 1.20
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     python3 \
@@ -88,7 +87,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-dev \
     python3-numpy \
     ninja-build \
-    libeigen3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Clone ONNX Runtime
@@ -97,8 +95,19 @@ RUN git clone --depth 1 --branch v${ONNX_VERSION} --recursive \
 
 WORKDIR /build/onnxruntime
 
+# Fix Eigen hash mismatch: GitLab regenerates zips dynamically, causing hash changes
+# Download current Eigen archive and update deps.txt with the real hash
+RUN EIGEN_URL=$(grep "^eigen;" cmake/deps.txt | cut -d';' -f2) && \
+    echo "Fixing Eigen hash mismatch..." && \
+    echo "Downloading Eigen from: $EIGEN_URL" && \
+    wget -q -O /tmp/eigen.zip "$EIGEN_URL" && \
+    NEW_HASH=$(sha1sum /tmp/eigen.zip | cut -d' ' -f1) && \
+    echo "New Eigen hash: $NEW_HASH" && \
+    sed -i "s|^eigen;.*;.*$|eigen;$EIGEN_URL;$NEW_HASH|" cmake/deps.txt && \
+    rm /tmp/eigen.zip && \
+    echo "Patched deps.txt with updated Eigen hash"
+
 # Build ONNX Runtime with XNNPACK on ARM64, without on x86
-# Using system Eigen to bypass GitLab hash mismatch issues
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "aarch64" ]; then \
         echo "Building ONNX Runtime with XNNPACK for ARM64..." && \
@@ -108,8 +117,6 @@ RUN ARCH=$(uname -m) && \
             --use_xnnpack \
             --skip_tests \
             --allow_running_as_root \
-            --use_preinstalled_eigen \
-            --eigen_path /usr/include/eigen3 \
             --cmake_extra_defines CMAKE_INSTALL_PREFIX=/usr/local ; \
     else \
         echo "Building ONNX Runtime (no XNNPACK) for x86_64..." && \
@@ -118,8 +125,6 @@ RUN ARCH=$(uname -m) && \
             --parallel $(nproc) \
             --skip_tests \
             --allow_running_as_root \
-            --use_preinstalled_eigen \
-            --eigen_path /usr/include/eigen3 \
             --cmake_extra_defines CMAKE_INSTALL_PREFIX=/usr/local ; \
     fi
 
