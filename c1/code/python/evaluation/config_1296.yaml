@@ -1,0 +1,9 @@
+FIXED_THRESH: 0.6 #0.8
+TARGET_SIZE: 1296
+rim_thresh: 0.25                    # Lowered from 0.25 for shadow regions
+min_confidence: 0.7
+min_confidence_min: 0.6
+scale_steps: 40
+downsample_factor: 1.0
+skip_prop_image: false  # Avoids processing images with no crater props
+angular_completeness_thresh: 0.35   # Lowered from default 0.35 for partial rims
