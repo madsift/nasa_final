@@ -154,6 +154,7 @@ RUN g++ -O3 -std=c++17 \
     -I./include \
     -I/usr/local/include/opencv4 \
     -I/usr/local/include \
+    -I/usr/local/include/onnxruntime \
     -L/usr/local/lib \
     -lopencv_core -lopencv_imgproc -lopencv_imgcodecs \
     -lonnxruntime \
@@ -167,6 +168,7 @@ RUN g++ -O3 -std=c++17 \
     -I./include \
     -I/usr/local/include/opencv4 \
     -I/usr/local/include \
+    -I/usr/local/include/onnxruntime \
     -L/usr/local/lib \
     -lopencv_core -lopencv_imgproc -lopencv_imgcodecs \
     -lonnxruntime \
@@ -188,6 +190,7 @@ RUN ARCH=$(uname -m) && \
     -I./include \
     -I/usr/local/include/opencv4 \
     -I/usr/local/include \
+    -I/usr/local/include/onnxruntime \
     -L/usr/local/lib \
     -lopencv_core -lopencv_imgproc -lopencv_imgcodecs \
     -lonnxruntime \
