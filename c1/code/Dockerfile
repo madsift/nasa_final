@@ -209,28 +209,22 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install runtime dependencies + Python 3.12
+# Install runtime dependencies + Python 3.12 (default in Ubuntu 24.04)
+# Note: libtiff6 is required to match the builder stage
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
-    gpg-agent \
-    && add-apt-repository ppa:deadsnakes/ppa \
-    && apt-get update && apt-get install -y --no-install-recommends \
     libpng16-16 \
     libjpeg8 \
-    libtiff5 \
+    libtiff6 \
     libgomp1 \
-    python3.12 \
-    python3.12-venv \
-    python3.12-dev \
+    python3 \
+    python3-venv \
+    python3-dev \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# Ensure python3 points to python3.12, and python points to python3
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
-    && update-alternatives --set python3 /usr/bin/python3.12 \
-    && ln -s /usr/bin/python3 /usr/bin/python
-
-# Install pip for Python 3.12
-RUN python3 -m ensurepip --upgrade && python3 -m pip install --upgrade pip
+# Ensure python/pip aliases exist (Ubuntu 24.04 uses python3)
+RUN ln -s /usr/bin/python3 /usr/bin/python
 
 # Create non-root user
 RUN useradd -m -u 1000 crater
