@@ -243,7 +243,7 @@ RUN ldconfig
 # This layer is cached unless requirements.txt changes
 # ---------------------------------------------------------------------------
 COPY requirements.txt /app/
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 
 # ---------------------------------------------------------------------------
 # Copy models (changes occasionally)
