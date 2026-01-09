@@ -207,6 +207,7 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 # ---------------------------------------------------------------------------
 COPY models/*.onnx /app/models/
 COPY models/*.txt /app/models/
+COPY models/*.pth /app/models/
 
 # ---------------------------------------------------------------------------
 # Copy C++ binaries (changes when C++ code changes)
