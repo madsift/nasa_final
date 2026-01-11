@@ -104,6 +104,7 @@ struct Args {
     int limit_images = 0;   // 0 = no limit (for memory testing)
     float ranker_thresh = 0.1f;  // Ranker score threshold (default 0.1 as in Python)
     bool use_ranker = false;  // Enable/disable ranker (match eval3.cpp default)
+    bool use_instance_norm = false;  // Apply per-image instance normalization
     
     // Tiling configuration (tile_w > 0 enables tiling)
     int tile_w = 0;         // Tile width (0 = no tiling, use full padded image)
@@ -641,6 +642,7 @@ Args parse_args(int argc, char* argv[]) {
         else if (arg == "--ranker-thresh" && i + 1 < argc) args.ranker_thresh = std::stof(argv[++i]);
         else if (arg == "--no-ranker") args.use_ranker = false;
         else if (arg == "--input-res" && i + 1 < argc) args.input_res = std::stoi(argv[++i]);
+        else if (arg == "--use-instance-norm") args.use_instance_norm = true;
         else if (arg == "--tile-size" && i + 1 < argc) {
             // Parse WxH format (e.g., "544x416" or "544,416" or just "544" for square)
             std::string ts = argv[++i];
@@ -843,6 +845,16 @@ int main(int argc, char* argv[]) {
             // Normalize all input channels
             cv::Mat img_float;
             img_resized.convertTo(img_float, CV_32F, 1.0 / 255.0);
+            
+            // Apply instance normalization if enabled (matches PyTorch: (x - mean) / clamp(std, min=0.1))
+            if (args.use_instance_norm) {
+                cv::Scalar mean_scalar, std_scalar;
+                cv::meanStdDev(img_float, mean_scalar, std_scalar);
+                float mean = (float)mean_scalar[0];
+                float std_val = std::max((float)std_scalar[0], 0.1f);
+                img_float = (img_float - mean) / std_val;
+            }
+            
             cv::Mat img_norm = (img_float - 0.5f) / 0.5f;
             
             // Build input planes based on CHANNELS configuration
@@ -851,13 +863,35 @@ int main(int argc, char* argv[]) {
                 input_planes.push_back(img_norm);
             } else if constexpr (CHANNELS == 2) {
                 // Normalize gradient (already in [0,1])
-                cv::Mat grad_norm = (grad - 0.5f) / 0.5f;
+                cv::Mat grad_float = grad.clone();
+                if (args.use_instance_norm) {
+                    cv::Scalar mean_scalar, std_scalar;
+                    cv::meanStdDev(grad_float, mean_scalar, std_scalar);
+                    float mean = (float)mean_scalar[0];
+                    float std_val = std::max((float)std_scalar[0], 0.1f);
+                    grad_float = (grad_float - mean) / std_val;
+                }
+                cv::Mat grad_norm = (grad_float - 0.5f) / 0.5f;
                 input_planes.push_back(img_norm);
                 input_planes.push_back(grad_norm);
             } else {
                 // 3 channels: img + DEM + gradient
-                cv::Mat dem_norm = (dem - 0.5f) / 0.5f;
-                cv::Mat grad_norm = (grad - 0.5f) / 0.5f;
+                cv::Mat dem_float = dem.clone();
+                cv::Mat grad_float = grad.clone();
+                if (args.use_instance_norm) {
+                    cv::Scalar mean_scalar, std_scalar;
+                    cv::meanStdDev(dem_float, mean_scalar, std_scalar);
+                    float mean = (float)mean_scalar[0];
+                    float std_val = std::max((float)std_scalar[0], 0.1f);
+                    dem_float = (dem_float - mean) / std_val;
+                    
+                    cv::meanStdDev(grad_float, mean_scalar, std_scalar);
+                    mean = (float)mean_scalar[0];
+                    std_val = std::max((float)std_scalar[0], 0.1f);
+                    grad_float = (grad_float - mean) / std_val;
+                }
+                cv::Mat dem_norm = (dem_float - 0.5f) / 0.5f;
+                cv::Mat grad_norm = (grad_float - 0.5f) / 0.5f;
                 input_planes.push_back(img_norm);
                 input_planes.push_back(dem_norm);
                 input_planes.push_back(grad_norm);

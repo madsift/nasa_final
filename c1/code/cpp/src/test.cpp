@@ -34,6 +34,10 @@
 #include "../include/ranking_features_multires.hpp"  // Multi-resolution ranking features
 #include "../include/polar.hpp"           // Polar ellipse fitting
 
+// libspng for faster PNG loading (2-3x faster than libpng/OpenCV)
+#define SPNG_STATIC
+#include "../include/spng.h"
+
 // Toggle between contour-based (OpenCV) and skimage-style regionprops
 // Set to 1 to use skimage-style regionprops, 0 to use OpenCV findContours
 #define USE_SKIMAGE_REGIONPROPS 1
@@ -115,6 +119,7 @@ struct Args {
     bool use_ranker = false;  // Enable/disable ranker (match eval3.cpp default)
     bool use_polar = false;   // Use polar ellipse fitting instead of cv2
     bool process_all = false; // Process all images (skip TARGET_PREFIXES filtering)
+    bool use_instance_norm = false;  // Apply per-image instance normalization
     
     // Tiling configuration (tile_w > 0 enables tiling)
     int tile_w = 0;         // Tile width (0 = no tiling, use full padded image)
@@ -141,6 +146,64 @@ void print_progress_bar(int current, int total, int bar_width = 50) {
     std::cout << "] " << std::fixed << std::setprecision(1) << (progress * 100.0f) << "% "
               << "(" << current << "/" << total << ")";
     std::cout.flush();
+}
+
+// =================================================================
+// FAST PNG LOADING using libspng (2-3x faster than OpenCV/libpng)
+// =================================================================
+cv::Mat load_png_grayscale_fast(const std::string& filepath) {
+    FILE* fp = fopen(filepath.c_str(), "rb");
+    if (!fp) {
+        return cv::Mat();  // File not found
+    }
+    
+    spng_ctx* ctx = spng_ctx_new(0);
+    if (!ctx) {
+        fclose(fp);
+        return cv::Mat();
+    }
+    
+    // Set file source
+    if (spng_set_png_file(ctx, fp) != 0) {
+        spng_ctx_free(ctx);
+        fclose(fp);
+        return cv::imread(filepath, cv::IMREAD_GRAYSCALE);  // Fallback
+    }
+    
+    // Get image header
+    struct spng_ihdr ihdr;
+    if (spng_get_ihdr(ctx, &ihdr) != 0) {
+        spng_ctx_free(ctx);
+        fclose(fp);
+        return cv::imread(filepath, cv::IMREAD_GRAYSCALE);  // Fallback
+    }
+    
+    // Decode to grayscale (G8)
+    size_t out_size;
+    int fmt = SPNG_FMT_G8;  // 8-bit grayscale
+    
+    if (spng_decoded_image_size(ctx, fmt, &out_size) != 0) {
+        spng_ctx_free(ctx);
+        fclose(fp);
+        return cv::imread(filepath, cv::IMREAD_GRAYSCALE);  // Fallback
+    }
+    
+    // Allocate output buffer
+    std::vector<unsigned char> buffer(out_size);
+    
+    int ret = spng_decode_image(ctx, buffer.data(), out_size, fmt, 0);
+    
+    spng_ctx_free(ctx);
+    fclose(fp);
+    
+    if (ret != 0) {
+        // Decode failed, fallback to OpenCV
+        return cv::imread(filepath, cv::IMREAD_GRAYSCALE);
+    }
+    
+    // Create cv::Mat from buffer (clone to own the data)
+    cv::Mat img(ihdr.height, ihdr.width, CV_8UC1, buffer.data());
+    return img.clone();  // Clone so we own the data after buffer goes out of scope
 }
 
 // --- MEMORY TRACKING (Linux /proc/self/status) ---
@@ -757,6 +820,7 @@ Args parse_args(int argc, char* argv[]) {
         else if (arg == "--solution-out" && i + 1 < argc) args.solution_out = argv[++i];
         else if (arg == "--input-res" && i + 1 < argc) args.input_res = std::stoi(argv[++i]);
         else if (arg == "--all") args.process_all = true;
+        else if (arg == "--use-instance-norm") args.use_instance_norm = true;
         else if (arg == "--tile-size" && i + 1 < argc) {
             // Parse WxH format (e.g., "544x416" or "544,416" or just "544" for square)
             std::string ts = argv[++i];
@@ -925,9 +989,9 @@ int main(int argc, char* argv[]) {
         const std::string& raw_img_path = image_paths[img_idx];
         const std::string full_filename = fs::path(raw_img_path).filename().string();
         
-        // === IMAGE LOADING ===
+        // === IMAGE LOADING (using libspng for 2-3x faster PNG decoding) ===
         auto t_stage = std::chrono::high_resolution_clock::now();
-        cv::Mat img_orig = cv::imread(raw_img_path, cv::IMREAD_GRAYSCALE);
+        cv::Mat img_orig = load_png_grayscale_fast(raw_img_path);
         if (img_orig.empty()) continue;
         double t_loading = std::chrono::duration<double, std::milli>(
             std::chrono::high_resolution_clock::now() - t_stage).count();
@@ -984,6 +1048,16 @@ int main(int argc, char* argv[]) {
             // Normalize all input channels
             cv::Mat img_float;
             img_resized.convertTo(img_float, CV_32F, 1.0 / 255.0);
+            
+            // Apply instance normalization if enabled (matches PyTorch: (x - mean) / clamp(std, min=0.1))
+            if (args.use_instance_norm) {
+                cv::Scalar mean_scalar, std_scalar;
+                cv::meanStdDev(img_float, mean_scalar, std_scalar);
+                float mean = (float)mean_scalar[0];
+                float std_val = std::max((float)std_scalar[0], 0.1f);
+                img_float = (img_float - mean) / std_val;
+            }
+            
             cv::Mat img_norm = (img_float - 0.5f) / 0.5f;
             img_float.release();  // No longer needed after normalization
             
@@ -993,13 +1067,35 @@ int main(int argc, char* argv[]) {
                 input_planes.push_back(img_norm);
             } else if constexpr (CHANNELS == 2) {
                 // Normalize gradient (already in [0,1])
-                cv::Mat grad_norm = (grad - 0.5f) / 0.5f;
+                cv::Mat grad_float = grad.clone();
+                if (args.use_instance_norm) {
+                    cv::Scalar mean_scalar, std_scalar;
+                    cv::meanStdDev(grad_float, mean_scalar, std_scalar);
+                    float mean = (float)mean_scalar[0];
+                    float std_val = std::max((float)std_scalar[0], 0.1f);
+                    grad_float = (grad_float - mean) / std_val;
+                }
+                cv::Mat grad_norm = (grad_float - 0.5f) / 0.5f;
                 input_planes.push_back(img_norm);
                 input_planes.push_back(grad_norm);
             } else {
                 // 3 channels: img + DEM + gradient
-                cv::Mat dem_norm = (dem - 0.5f) / 0.5f;
-                cv::Mat grad_norm = (grad - 0.5f) / 0.5f;
+                cv::Mat dem_float = dem.clone();
+                cv::Mat grad_float = grad.clone();
+                if (args.use_instance_norm) {
+                    cv::Scalar mean_scalar, std_scalar;
+                    cv::meanStdDev(dem_float, mean_scalar, std_scalar);
+                    float mean = (float)mean_scalar[0];
+                    float std_val = std::max((float)std_scalar[0], 0.1f);
+                    dem_float = (dem_float - mean) / std_val;
+                    
+                    cv::meanStdDev(grad_float, mean_scalar, std_scalar);
+                    mean = (float)mean_scalar[0];
+                    std_val = std::max((float)std_scalar[0], 0.1f);
+                    grad_float = (grad_float - mean) / std_val;
+                }
+                cv::Mat dem_norm = (dem_float - 0.5f) / 0.5f;
+                cv::Mat grad_norm = (grad_float - 0.5f) / 0.5f;
                 input_planes.push_back(img_norm);
                 input_planes.push_back(dem_norm);
                 input_planes.push_back(grad_norm);

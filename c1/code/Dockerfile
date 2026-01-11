@@ -145,7 +145,8 @@ WORKDIR /build/code
 # Copy C++ source files from new directory structure
 COPY cpp/src/eval3_static.cpp cpp/src/test.cpp cpp/src/test_arm64.cpp cpp/src/watershed_static.cpp ./src/
 COPY cpp/include/watershed_static.h cpp/include/label.h cpp/include/lightgbm_ranker.h \
-     cpp/include/ranking_features_multires.hpp cpp/include/polar.hpp ./include/
+     cpp/include/ranking_features_multires.hpp cpp/include/polar.hpp \
+     cpp/include/spng.h cpp/include/spng.c ./include/
 
 # Build eval3_static (scoring/evaluation binary)
 RUN find /usr/local/include -name "onnxruntime_cxx_api.h" && \
@@ -164,9 +165,10 @@ RUN find /usr/local/include -name "onnxruntime_cxx_api.h" && \
     && strip eval3_static
 
 # Build test (inference-only binary, no GT loading)
+# Uses libspng for 2-3x faster PNG loading
 RUN g++ -O3 -std=c++17 \
     -o test \
-    src/test.cpp src/watershed_static.cpp \
+    src/test.cpp src/watershed_static.cpp include/spng.c \
     -I./include \
     -I/usr/local/include/opencv4 \
     -I/usr/local/include \
@@ -175,6 +177,7 @@ RUN g++ -O3 -std=c++17 \
     -L/usr/local/lib \
     -lopencv_core -lopencv_imgproc -lopencv_imgcodecs \
     -lonnxruntime \
+    -lz \
     -lstdc++fs \
     && strip test
 
