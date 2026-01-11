@@ -34,9 +34,11 @@
 #include "../include/ranking_features_multires.hpp"  // Multi-resolution ranking features
 #include "../include/polar.hpp"           // Polar ellipse fitting
 
-// libspng for faster PNG loading (2-3x faster than libpng/OpenCV)
-#define SPNG_STATIC
-#include "../include/spng.h"
+// stb_image for faster PNG loading (header-only, C++ compatible)
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG              // Only need PNG support
+#define STBI_NO_FAILURE_STRINGS    // Smaller binary
+#include "../include/stb_image.h"
 
 // Toggle between contour-based (OpenCV) and skimage-style regionprops
 // Set to 1 to use skimage-style regionprops, 0 to use OpenCV findContours
@@ -149,61 +151,26 @@ void print_progress_bar(int current, int total, int bar_width = 50) {
 }
 
 // =================================================================
-// FAST PNG LOADING using libspng (2-3x faster than OpenCV/libpng)
+// FAST PNG LOADING using stb_image (header-only, C++ compatible)
 // =================================================================
 cv::Mat load_png_grayscale_fast(const std::string& filepath) {
-    FILE* fp = fopen(filepath.c_str(), "rb");
-    if (!fp) {
-        return cv::Mat();  // File not found
-    }
+    int width, height, channels;
     
-    spng_ctx* ctx = spng_ctx_new(0);
-    if (!ctx) {
-        fclose(fp);
-        return cv::Mat();
-    }
+    // Load as grayscale (force 1 channel)
+    unsigned char* data = stbi_load(filepath.c_str(), &width, &height, &channels, 1);
     
-    // Set file source
-    if (spng_set_png_file(ctx, fp) != 0) {
-        spng_ctx_free(ctx);
-        fclose(fp);
-        return cv::imread(filepath, cv::IMREAD_GRAYSCALE);  // Fallback
-    }
-    
-    // Get image header
-    struct spng_ihdr ihdr;
-    if (spng_get_ihdr(ctx, &ihdr) != 0) {
-        spng_ctx_free(ctx);
-        fclose(fp);
-        return cv::imread(filepath, cv::IMREAD_GRAYSCALE);  // Fallback
-    }
-    
-    // Decode to grayscale (G8)
-    size_t out_size;
-    int fmt = SPNG_FMT_G8;  // 8-bit grayscale
-    
-    if (spng_decoded_image_size(ctx, fmt, &out_size) != 0) {
-        spng_ctx_free(ctx);
-        fclose(fp);
-        return cv::imread(filepath, cv::IMREAD_GRAYSCALE);  // Fallback
-    }
-    
-    // Allocate output buffer
-    std::vector<unsigned char> buffer(out_size);
-    
-    int ret = spng_decode_image(ctx, buffer.data(), out_size, fmt, 0);
-    
-    spng_ctx_free(ctx);
-    fclose(fp);
-    
-    if (ret != 0) {
-        // Decode failed, fallback to OpenCV
+    if (!data) {
+        // Fallback to OpenCV if stb_image fails
         return cv::imread(filepath, cv::IMREAD_GRAYSCALE);
     }
     
-    // Create cv::Mat from buffer (clone to own the data)
-    cv::Mat img(ihdr.height, ihdr.width, CV_8UC1, buffer.data());
-    return img.clone();  // Clone so we own the data after buffer goes out of scope
+    // Create cv::Mat and copy data (stbi_load allocates, we need to free)
+    cv::Mat img(height, width, CV_8UC1, data);
+    cv::Mat result = img.clone();  // Clone to own the data
+    
+    stbi_image_free(data);  // Free stb_image allocation
+    
+    return result;
 }
 
 // --- MEMORY TRACKING (Linux /proc/self/status) ---
