@@ -56,8 +56,15 @@
 #include "../include/watershed_static.h"  // Static memory version
 #include "../include/label.h"             // For skimage-compatible regionprops
 #include "../include/lightgbm_ranker.h"   // Auto-generated LightGBM model (pure C)
+#include "../include/classifier_ensemble.h"  // Auto-generated LightGBM classifier ensemble (pure C)
 #include "../include/ranking_features_multires.hpp"  // Multi-resolution ranking features
 #include "../include/polar.hpp"           // Polar ellipse fitting
+
+// stb_image for faster PNG loading (header-only, C++ compatible)
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG              // Only need PNG support
+#define STBI_NO_FAILURE_STRINGS    // Smaller binary
+#include "../include/stb_image.h"
 
 // Toggle between contour-based (OpenCV) and skimage-style regionprops
 #define USE_SKIMAGE_REGIONPROPS 1
@@ -136,6 +143,7 @@ struct Args {
     bool process_all = false;
     bool use_xnnpack = false;  // ARM64: Use XNNPACK execution provider
     bool use_instance_norm = false;  // Apply per-image instance normalization
+    bool use_classifier = false;  // Enable crater classification (A/AB/B/BC/C)
     
     // Tiling configuration
     int tile_w = 0;
@@ -216,6 +224,29 @@ void print_memory_report(const MemoryStats& stats) {
         std::cout << "Max during:     " << (max_val / 1024.0) << " MB" << std::endl;
     }
     std::cout << "---------------------------" << std::endl;
+}
+
+// =================================================================
+// FAST PNG LOADING using stb_image (header-only, C++ compatible)
+// =================================================================
+cv::Mat load_png_grayscale_fast(const std::string& filepath) {
+    int width, height, channels;
+    
+    // Load as grayscale (force 1 channel)
+    unsigned char* data = stbi_load(filepath.c_str(), &width, &height, &channels, 1);
+    
+    if (!data) {
+        // Fallback to OpenCV if stb_image fails
+        return cv::imread(filepath, cv::IMREAD_GRAYSCALE);
+    }
+    
+    // Create cv::Mat and copy data (stbi_load allocates, we need to free)
+    cv::Mat img(height, width, CV_8UC1, data);
+    cv::Mat result = img.clone();  // Clone to own the data
+    
+    stbi_image_free(data);  // Free stb_image allocation
+    
+    return result;
 }
 
 // =================================================================
@@ -714,7 +745,10 @@ Args parse_args(int argc, char* argv[]) {
         else if (arg == "--limit-images" && i + 1 < argc) args.limit_images = std::stoi(argv[++i]);
         else if (arg == "--ranker-thresh" && i + 1 < argc) args.ranker_thresh = std::stof(argv[++i]);
         else if (arg == "--no-ranker") args.use_ranker = false;
+        else if (arg == "--use-ranker") args.use_ranker = true;
         else if (arg == "--polar") args.use_polar = true;
+        else if (arg == "--classify") args.use_classifier = true;
+        else if (arg == "--no-classifier") args.use_classifier = false;
         else if (arg == "--solution-out" && i + 1 < argc) args.solution_out = argv[++i];
         else if (arg == "--input-res" && i + 1 < argc) args.input_res = std::stoi(argv[++i]);
         else if (arg == "--all") args.process_all = true;
@@ -782,7 +816,7 @@ int main(int argc, char* argv[]) {
     TimingStats time_image_loading, time_resizing, time_dem_gradient;
     TimingStats time_input_normalization, time_model_inference, time_output_upscale;
     TimingStats time_ellipse_extraction, time_ranker_scoring;
-    TimingStats time_polar_fitting;
+    TimingStats time_polar_fitting, time_classification;
     double time_config_loading = 0, time_onnx_init = 0;
     
     auto t_init_start = std::chrono::high_resolution_clock::now();
@@ -872,6 +906,7 @@ int main(int argc, char* argv[]) {
     std::cout << "XNNPACK: " << (xnnpack_enabled ? "ENABLED" : "DISABLED") << std::endl;
     std::cout << "Ellipse fitting: " << (args.use_polar ? "POLAR" : "CV2") << std::endl;
     std::cout << "Ranker: " << (args.use_ranker ? "enabled" : "disabled") << std::endl;
+    std::cout << "Classifier: " << (args.use_classifier ? "enabled" : "disabled") << std::endl;
     if (args.tile_w > 0) {
         std::cout << "Tiling: " << args.tile_w << "x" << args.tile_h 
                   << " overlap " << args.overlap_w << "x" << args.overlap_h << std::endl;
@@ -889,6 +924,9 @@ int main(int argc, char* argv[]) {
     
     // Data collection for CSV output
     std::vector<std::tuple<std::string, std::vector<Crater>>> all_predictions;
+    
+    // Classification labels: key is (img_path, crater_index), value is class (0-4)
+    std::map<std::pair<std::string, int>, int> crater_classifications;
 
     // Collect all matching image files first
     std::vector<std::string> image_paths;
@@ -915,9 +953,9 @@ int main(int argc, char* argv[]) {
         const std::string& raw_img_path = image_paths[img_idx];
         const std::string full_filename = fs::path(raw_img_path).filename().string();
         
-        // === IMAGE LOADING ===
+        // === IMAGE LOADING (using stb_image for faster PNG decoding) ===
         auto t_stage = std::chrono::high_resolution_clock::now();
-        cv::Mat img_orig = cv::imread(raw_img_path, cv::IMREAD_GRAYSCALE);
+        cv::Mat img_orig = load_png_grayscale_fast(raw_img_path);
         if (img_orig.empty()) continue;
         double t_loading = std::chrono::duration<double, std::milli>(
             std::chrono::high_resolution_clock::now() - t_stage).count();
@@ -1155,6 +1193,66 @@ int main(int argc, char* argv[]) {
             time_ranker_scoring.add(t_ranking);
         }
 
+        // === CLASSIFICATION SCORING (Optional - uses LightGBM ensemble) ===
+        if (args.use_classifier && !extracted.empty()) {
+            t_stage = std::chrono::high_resolution_clock::now();
+            
+            const cv::Mat& rim_prob_cls = full_planes[2];  // Channel 2 is rim
+            
+            // Get relative path for this image (for storing classification results)
+            std::string img_key_for_cls;
+            if (raw_img_path.find(args.raw_data_dir) == 0) {
+                img_key_for_cls = raw_img_path.substr(args.raw_data_dir.length());
+                if (!img_key_for_cls.empty() && img_key_for_cls[0] == '/') {
+                    img_key_for_cls = img_key_for_cls.substr(1);
+                }
+                size_t ext_pos = img_key_for_cls.find_last_of('.');
+                if (ext_pos != std::string::npos) {
+                    img_key_for_cls = img_key_for_cls.substr(0, ext_pos);
+                }
+            } else {
+                img_key_for_cls = full_filename.substr(0, full_filename.find_last_of('.'));
+            }
+            
+            for (size_t crater_idx = 0; crater_idx < extracted.size(); ++crater_idx) {
+                auto& crater = extracted[crater_idx];
+                
+                // Get rim points for feature extraction
+                auto rim_pts = RankingFeatures::get_rim_points_for_candidate_fast(
+                    rim_prob_cls, crater.x, crater.y, crater.a, crater.b, crater.angle,
+                    48, 4, 0.2f
+                );
+                
+                int predicted_class = 2;  // Default to class B if not enough points
+                
+                if (rim_pts.size() >= 5) {
+                    // Compute illumination level for SNR features
+                    double illumination_level = cv::mean(img_orig)[0];
+                    
+                    // Extract ONLY the 31 classifier features (lean, no morphology/stability/meta)
+                    auto feat_vec = RankingFeatures::extract_classifier_features(
+                        rim_pts,
+                        crater.x, crater.y, crater.a, crater.b, crater.angle,
+                        rim_prob_cls,
+                        img_orig,
+                        h_orig, w_orig,
+                        illumination_level
+                    );
+                    
+                    // Get classification score using ensemble model
+                    double ordinal_score = cls_ensemble_predict(feat_vec.data());
+                    predicted_class = cls_ordinal_to_class(ordinal_score);
+                }
+                
+                // Store classification result
+                crater_classifications[{img_key_for_cls, static_cast<int>(crater_idx)}] = predicted_class;
+            }
+            
+            double t_cls = std::chrono::duration<double, std::milli>(
+                std::chrono::high_resolution_clock::now() - t_stage).count();
+            time_classification.add(t_cls);
+        }
+
         // Sort by confidence (descending) and limit
         std::sort(extracted.begin(), extracted.end(), [](const Crater& a, const Crater& b){
             return a.confidence > b.confidence;
@@ -1213,7 +1311,7 @@ int main(int argc, char* argv[]) {
                            time_dem_gradient.total + time_input_normalization.total +
                            time_model_inference.total + time_output_upscale.total +
                            time_ellipse_extraction.total + time_ranker_scoring.total +
-                           time_polar_fitting.total) / 1000.0;  // to seconds
+                           time_polar_fitting.total + time_classification.total) / 1000.0;  // to seconds
     double untracked = total_duration_s - total_tracked;
     
     auto printRow = [&](const char* name, const TimingStats& s, double total_s) {
@@ -1251,6 +1349,9 @@ int main(int argc, char* argv[]) {
         printRow("  polar_fitting", time_polar_fitting, total_duration_s);
     }
     printRow("  ranker_scoring", time_ranker_scoring, total_duration_s);
+    if (args.use_classifier) {
+        printRow("  classification", time_classification, total_duration_s);
+    }
     printRow("  dem_gradient_creation", time_dem_gradient, total_duration_s);
     printRow("  image_loading", time_image_loading, total_duration_s);
     printRow("  resizing", time_resizing, total_duration_s);
@@ -1294,11 +1395,20 @@ int main(int argc, char* argv[]) {
                 // No craters detected - add a -1 row
                 sol_file << "-1,-1,-1,-1,-1," << img_path << ",-1" << std::endl;
             } else {
-                for (const auto& c : craters) {
+                for (size_t i = 0; i < craters.size(); ++i) {
+                    const auto& c = craters[i];
+                    // Look up classification for this crater
+                    int cls_label = 4;  // Default to C if classification disabled
+                    if (args.use_classifier) {
+                        auto cls_it = crater_classifications.find({img_path, static_cast<int>(i)});
+                        if (cls_it != crater_classifications.end()) {
+                            cls_label = cls_it->second;
+                        }
+                    }
                     sol_file << std::fixed << std::setprecision(2)
                              << c.x << "," << c.y << "," 
                              << c.a << "," << c.b << "," 
-                             << c.angle << "," << img_path << ",4" << std::endl;
+                             << c.angle << "," << img_path << "," << cls_label << std::endl;
                 }
             }
         }
