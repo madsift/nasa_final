@@ -791,8 +791,8 @@ Args parse_args(int argc, char* argv[]) {
             args.overlap_h = 32;
         } else {
             // Default for other configurations
-            args.overlap_w = 32;
-            args.overlap_h = 32;
+            args.overlap_w = 22;
+            args.overlap_h = 0;
         }
     }
     
