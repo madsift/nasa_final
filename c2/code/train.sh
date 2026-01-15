@@ -5,7 +5,7 @@ python train_smp_multi.py \
     --model CraterSMP \
     --gpus 4 \
     --outdir $1 \
-    --batch_size 16 --num_epochs 32
+    --batch_size 16 --num_epochs 32 --sigma_clamp '-2.0,2.0'
 #python -m python.export.export_static_reparam --checkpoint ./models/best_model.pth --output ./models/best_672x544_fp32.onnx --dtype fp32 --optimize_arm64
 #python -m python.training.train_ranker  --input_data ../ranking_data/features_full.csv --output lightgbm_ranker_n.txt
 #python -m python.export.convert_ranker_to_c -i ../lightgbm_ranker_n.txt -o ./cpp/include/lightgbm_ranker.h
