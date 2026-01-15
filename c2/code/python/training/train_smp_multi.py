@@ -330,9 +330,9 @@ def train_worker(rank, world_size, args):
     
     # Save directory
     if args.name_prefix:
-        save_dir = f'./{args.name_prefix}_{args.model}_{args.backbone}'
+        save_dir = f'./{args.outdir}/{args.model}_{args.backbone}'
     else:
-        save_dir = f'./{args.model}_{args.backbone}'
+        save_dir = f'./{args.outdir}/{args.model}_{args.backbone}'
     
     if is_main:
         os.makedirs(save_dir, exist_ok=True)
@@ -578,8 +578,8 @@ def main():
     parser.add_argument("--sigma_clamp", type=str, default="-5.0,10.0",
                         help="Min,max clamp range for learned sigma params (default: -5.0,10.0). "
                              "Tighter range like -2.0,2.0 can stabilize training for larger tiles.")
-    parser.add_argument("--name_prefix", type=str, default=None,
-                        help="Prefix for output directory name (e.g., 'exp1' -> 'exp1_CraterSMP_LayerNorm_mobileone_s2')")
+    parser.add_argument("--outdir", type=str, default=None,
+                        help="Output directory for checkpoints and logs")
     
     args = parser.parse_args()
     
