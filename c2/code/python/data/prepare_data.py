@@ -74,6 +74,40 @@ def compute_resize_dims(orig_w, orig_h, target_size):
     return new_w, new_h, scale_factor
 
 
+def pad_for_tiling(img, target_size):
+    """
+    Pad image to ensure both dimensions are divisible for perfect tiling after resize.
+    
+    For target_size=1440 with 2592x2048 images:
+    - Pad height from 2048 to 2052 (add 4 pixels to bottom)
+    - 2592/1.8=1440, 2052/1.8=1140 -> perfect 720x570 tiles (2x2 grid)
+    
+    Args:
+        img: Input image (grayscale or color)
+        target_size: Target size for larger dimension
+        
+    Returns:
+        Padded image, (pad_bottom, pad_right) tuple
+    """
+    h, w = img.shape[:2]
+    pad_bottom = 0
+    pad_right = 0
+    
+    if target_size == 1440:
+        # For 2592x2048 images: pad height to 2052 for perfect 1/1.8 scaling
+        # 2052/1.8 = 1140, 2592/1.8 = 1440 -> tiles 720x570
+        if w == 2592 and h == 2048:
+            pad_bottom = 4  # 2048 + 4 = 2052
+    
+    if pad_bottom > 0 or pad_right > 0:
+        if len(img.shape) == 2:
+            img = np.pad(img, ((0, pad_bottom), (0, pad_right)), mode='edge')
+        else:
+            img = np.pad(img, ((0, pad_bottom), (0, pad_right), (0, 0)), mode='edge')
+    
+    return img, (pad_bottom, pad_right)
+
+
 def generate_masks(image_shape, craters, scale_factor):
     """Generate masks at original resolution.
     
@@ -240,12 +274,22 @@ def process_dataset(args):
 
         orig_h, orig_w = img.shape[:2]
         
-        # Compute aspect-ratio-preserving dimensions
-        # Larger dimension -> target_size, smaller computed automatically
-        new_w, new_h, scale = compute_resize_dims(orig_w, orig_h, target_size)
+        # Pad image if needed for perfect tiling (e.g., 2048->2052 for 1440 target)
+        img, (pad_bottom, pad_right) = pad_for_tiling(img, target_size)
+        padded_h, padded_w = img.shape[:2]
         
-        # Generate masks at original resolution
-        m_core, m_global, m_rim = generate_masks(img.shape, group, scale)
+        # Compute aspect-ratio-preserving dimensions from PADDED size
+        # Larger dimension -> target_size, smaller computed automatically
+        new_w, new_h, scale = compute_resize_dims(padded_w, padded_h, target_size)
+        
+        # Generate masks at original resolution (before padding)
+        m_core, m_global, m_rim = generate_masks((orig_h, orig_w), group, scale)
+        
+        # Pad masks to match padded image
+        if pad_bottom > 0 or pad_right > 0:
+            m_core = np.pad(m_core, ((0, pad_bottom), (0, pad_right)), mode='constant', constant_values=0)
+            m_global = np.pad(m_global, ((0, pad_bottom), (0, pad_right)), mode='constant', constant_values=0)
+            m_rim = np.pad(m_rim, ((0, pad_bottom), (0, pad_right)), mode='constant', constant_values=0)
 
         # Resize preserving aspect ratio
         img_r = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)

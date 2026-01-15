@@ -198,12 +198,15 @@ class AutomaticWeightedLoss(nn.Module):
         return total_loss, loss_dict
 
 class AutomaticWeightedLoss_Boundary(nn.Module):
-    def __init__(self, num_losses=3, weight_boundary=0.5, use_global=True):
+    def __init__(self, num_losses=3, weight_boundary=0.5, use_global=True,
+                 sigma_clamp_min=-5.0, sigma_clamp_max=10.0):
         super(AutomaticWeightedLoss_Boundary, self).__init__()
         # num_losses: Number of tasks to weight (Core, Global, Rim)
         # If use_global is False, we expect num_losses to be 2 (Core, Rim)
         self.num_losses = num_losses
         self.use_global = use_global
+        self.sigma_clamp_min = sigma_clamp_min
+        self.sigma_clamp_max = sigma_clamp_max
         
         # Learnable parameters (s) for each task
         # Initialize to 0.0 (weight = 1.0)
@@ -262,7 +265,7 @@ class AutomaticWeightedLoss_Boundary(nn.Module):
         # Index depends on whether Global is used
         idx_rim = 2 if self.use_global else 1
         
-        s_rim = torch.clamp(self.params[idx_rim], min=-5.0, max=10.0)
+        s_rim = torch.clamp(self.params[idx_rim], min=self.sigma_clamp_min, max=self.sigma_clamp_max)
         precision_rim = 0.5 * torch.exp(-s_rim)
         weighted_rim_base = precision_rim * loss_rim_base + s_rim / 2.0
         
@@ -273,13 +276,13 @@ class AutomaticWeightedLoss_Boundary(nn.Module):
         # --------------------------------------------
         
         # Core
-        s_core = torch.clamp(self.params[0], min=-5.0, max=10.0)
+        s_core = torch.clamp(self.params[0], min=self.sigma_clamp_min, max=self.sigma_clamp_max)
         precision_core = 0.5 * torch.exp(-s_core)
         weighted_core = precision_core * loss_core + s_core / 2.0
 
         # Global
         if self.use_global:
-            s_global = torch.clamp(self.params[1], min=-5.0, max=10.0)
+            s_global = torch.clamp(self.params[1], min=self.sigma_clamp_min, max=self.sigma_clamp_max)
             precision_global = 0.5 * torch.exp(-s_global)
             weighted_global = precision_global * loss_global + s_global / 2.0
             total_loss = weighted_core + weighted_global + weighted_rim

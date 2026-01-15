@@ -1008,6 +1008,113 @@ class CraterSMP_3Ch_RAM(nn.Module):
         return masks
 
 
+# --- DEPTHWISE-SEPARABLE CONVOLUTION MODULE ---
+class DWConv3x3_PW(nn.Module):
+    """
+    Depthwise-separable convolution: 3x3 depthwise + 1x1 pointwise.
+    
+    More efficient than standard 3x3 convolution with similar receptive field.
+    Reduces parameters and FLOPs while maintaining feature quality.
+    """
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.dw = nn.Conv2d(
+            in_channels,
+            in_channels,
+            kernel_size=3,
+            padding=1,
+            groups=in_channels,
+            bias=False,
+        )
+        self.pw = nn.Conv2d(
+            in_channels,
+            out_channels,
+            kernel_size=1,
+            bias=False,
+        )
+
+    def forward(self, x):
+        x = self.dw(x)
+        x = self.pw(x)
+        return x
+
+
+def convert_smp_decoder(model):
+    """
+    Convert SMP decoder blocks to use depthwise-separable convolutions.
+    
+    Only converts blocks >= 2 (lower resolution blocks), keeping
+    high-resolution blocks unchanged for quality preservation.
+    
+    Args:
+        model: SMP model with a decoder attribute
+    """
+    decoder = model.decoder
+
+    for idx, block in enumerate(decoder.blocks):
+        # SMP order: block_0 = highest resolution
+        # We convert only blocks >= 2
+        if idx < 2:
+            continue
+
+        for conv_name in ["conv1", "conv2"]:
+            conv_block = getattr(block, conv_name)
+
+            conv = conv_block[0]
+            bn   = conv_block[1]
+            act  = conv_block[2]
+
+            if not isinstance(conv, nn.Conv2d):
+                continue
+
+            in_c  = conv.in_channels
+            out_c = conv.out_channels
+
+            new_conv = DWConv3x3_PW(in_c, out_c)
+
+            setattr(
+                block,
+                conv_name,
+                nn.Sequential(new_conv, bn, act),
+            )
+
+
+class CraterSMPd(nn.Module):
+    """
+    CraterSMP with depthwise-separable convolutions in decoder blocks >= 2.
+    
+    This variant reduces computational cost while maintaining accuracy
+    by using efficient depthwise-separable convolutions in lower-resolution
+    decoder blocks.
+    
+    Args:
+        backbone: Encoder backbone name (default: mobileone_s2)
+        in_channels: Number of input channels (default: 3)
+        num_classes: Number of output classes (default: 3)
+        decoder_channels: Decoder channel configuration
+    """
+    def __init__(self, backbone="mobileone_s2", in_channels=3, num_classes=3,
+                 decoder_channels=(256, 128, 64, 32, 16)):
+        super(CraterSMPd, self).__init__()
+        
+        # Create base SMP model
+        self.model = smp.Unet(
+            encoder_name=backbone,
+            encoder_weights="imagenet",
+            in_channels=in_channels,
+            classes=num_classes,
+            activation=None,
+            decoder_channels=decoder_channels
+        )
+        
+        # Convert decoder to use depthwise-separable convolutions
+        convert_smp_decoder(self.model)
+        
+        print(f"[CraterSMPd] Created with depthwise-separable convolutions in decoder blocks >= 2")
+    
+    def forward(self, x):
+        return self.model(x)
+
 if __name__ == "__main__":
     # Final Verification
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
