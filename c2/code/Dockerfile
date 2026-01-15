@@ -102,7 +102,7 @@ RUN ldconfig
 WORKDIR /build/code
 
 # Copy C++ source files from new directory structure
-COPY cpp/src/eval3_static.cpp cpp/src/test.cpp cpp/src/test_arm64.cpp cpp/src/watershed_static.cpp ./src/
+COPY cpp/src/eval3_static.cpp cpp/src/test.cpp cpp/src/test_arm64.cpp cpp/src/test_arm64_1620.cpp cpp/src/test_arm64_1440.cpp cpp/src/watershed_static.cpp ./src/
 COPY cpp/include/watershed_static.h cpp/include/label.h cpp/include/lightgbm_ranker.h \
      cpp/include/ranking_features_multires.hpp cpp/include/polar.hpp \
      cpp/include/stb_image.h cpp/include/classifier_ensemble.h ./include/
@@ -154,6 +154,43 @@ RUN ARCH=$(uname -m) && \
     -lstdc++fs \
     && strip test_arm64
 
+# Build test_arm64_1620 (ARM64-optimized inference binary with 1620x1280 max resolution)
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ]; then \
+        MARCH_FLAG="-march=armv8.2-a+fp16+dotprod -ffast-math -flto"; \
+    else \
+        MARCH_FLAG=""; \
+    fi && \
+    g++ -O3 -std=c++17 $MARCH_FLAG \
+    -o test_arm64_1620 \
+    src/test_arm64_1620.cpp src/watershed_static.cpp \
+    -I./include \
+    -I/usr/local/include/opencv4 \
+    -I/usr/local/include \
+    -L/usr/local/lib \
+    -lopencv_core -lopencv_imgproc -lopencv_imgcodecs \
+    -lonnxruntime \
+    -lstdc++fs \
+    && strip test_arm64_1620
+
+# Build test_arm64_1440 (ARM64-optimized inference binary with 1440x1140 padded resolution)
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ]; then \
+        MARCH_FLAG="-march=armv8.2-a+fp16+dotprod -ffast-math -flto"; \
+    else \
+        MARCH_FLAG=""; \
+    fi && \
+    g++ -O3 -std=c++17 $MARCH_FLAG \
+    -o test_arm64_1440 \
+    src/test_arm64_1440.cpp src/watershed_static.cpp \
+    -I./include \
+    -I/usr/local/include/opencv4 \
+    -I/usr/local/include \
+    -L/usr/local/lib \
+    -lopencv_core -lopencv_imgproc -lopencv_imgcodecs \
+    -lonnxruntime \
+    -lstdc++fs \
+    && strip test_arm64_1440
 
 # ===========================================================================
 # STAGE 2: RUNTIME IMAGE
@@ -218,6 +255,8 @@ COPY models/*.pth /app/models/
 COPY --from=cpp-builder /build/code/eval3_static /app/
 COPY --from=cpp-builder /build/code/test /app/
 COPY --from=cpp-builder /build/code/test_arm64 /app/
+COPY --from=cpp-builder /build/code/test_arm64_1620 /app/
+COPY --from=cpp-builder /build/code/test_arm64_1440 /app/
 
 # ---------------------------------------------------------------------------
 # Copy application code (changes most frequently)
