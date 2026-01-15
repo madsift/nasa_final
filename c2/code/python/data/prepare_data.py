@@ -7,8 +7,8 @@ import warnings
 from pathlib import Path
 from tqdm import tqdm
 
-# Import sfs_fast from the same directory
-from sfs_fast import compute_dem_and_gradient
+# Import sfs_fast using relative import for package structure
+from python.features.sfs_fast import compute_dem_and_gradient
 
 OUTPUT_MIN_THICKNESS = 4  # Minimum rim thickness in OUTPUT image (after resize)
 RIM_THICKNESS_RATIO = 0.05

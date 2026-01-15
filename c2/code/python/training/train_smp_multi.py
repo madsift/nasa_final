@@ -25,12 +25,12 @@ from datetime import datetime
 from pathlib import Path
 import random
 
-# Import your modules
-from datasets import CraterDataset3, get_valid_transforms, get_train_transforms
-from models_smp import (CraterSMP, CraterSMP_3Ch_RAM, CraterSMP_GroupNorm,
+# Import your modules using package paths (for running as python -m python.training.train_smp_multi)
+from python.training.datasets import CraterDataset3, get_valid_transforms, get_train_transforms
+from python.models.models_smp import (CraterSMP, CraterSMP_3Ch_RAM, CraterSMP_GroupNorm,
                         CraterSMP_LayerNorm, CraterSMP_LayerNorm_Deep, CraterSMP_LayerNorm_Deep_v2,
                         CraterSMPd)
-from losses import AutomaticWeightedLoss_Boundary
+from python.training.losses import AutomaticWeightedLoss_Boundary
 
 
 # =============================================================================

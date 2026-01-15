@@ -183,3 +183,38 @@ Mean during:    633.2 MB
 Min during:     576.7 MB
 Max during:     639.5 MB
 ---------------------------------------------------------------------
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$4444
+crater@45df629e8d6c:/app$ ./test_arm64_1440 --raw-dir /data/test 
+--model models/736_s2d.onnx  --input-res 1440 --tile-size 736x576 
+--solution-out sol13-test-672.csv --limit-craters 11  --no-ranker 
+--all --limit-images 10
+
+[PER-IMAGE PROCESSING COSTS]
+----------------------------------------------------------------------
+  Stage                        |   Total(s) |   Mean(ms) |    Max(ms) |      %
+----------------------------------------------------------------------
+  model_inference (ONNX)       |      44.68 |    4468.37 |    4511.81 |   94.2%
+  input_normalization          |       0.02 |       1.55 |       1.60 |    0.0%
+  output_upscale               |       0.09 |       8.79 |       9.10 |    0.2%
+  ellipse_extraction           |       0.64 |      63.68 |      69.73 |    1.3%
+  ranker_scoring               |       0.00 |       0.00 |       0.00 |    0.0%
+  dem_gradient_creation        |       1.45 |     145.33 |     145.75 |    3.1%
+  image_loading                |       0.45 |      44.59 |      48.15 |    0.9%
+  resizing                     |       0.01 |       1.50 |       1.55 |    0.0%
+  (untracked overhead)         |       0.12 |      11.58 |            |    0.2%
+----------------------------------------------------------------------
+  TOTAL (end-to-end)           |      47.45 |    4745.38 |            | 100.0%
+
+  Images processed: 10
+
+| Model | Tile Size | Inference Time (s) | Total Time per Image (s) |
+| :--- | :--- | :--- | :--- |
+| `models/best_672x544.onnx` | 672x544 | 5.33 | 5.54 |
+| `models/736_s1.onnx` | 736x576 | 5.09 | 5.94 |
+| `models/736_s1d.onnx` | 736x576 | 3.45 | 3.72 |
+| `models/736_s0.onnx` | 736x576 | 3.80 | 4.11 |
+| `models/832_s0.onnx` | 832x640 | 4.79 | 5.10 |
+| `models/832_sd0.onnx` | 832x640 | 2.99 | 3.27 |
+| `models/736_s2d.onnx` | 736x576 | 4.47 | 4.75 |
+
+if d works best could 832_sd1 be the best model
