@@ -118,3 +118,68 @@ $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$44
   TOTAL (end-to-end)           |      41.06 |    4106.03 |            | 100.0%
 $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$4444
 
+crater@a6bda7be53c6:/app$ ./test_arm64_1620 --raw-dir /data/test 
+--model models/832_s0.onnx  --input-res 1620 --tile-size 832x640 --solution-out sol13-test-672.csv --limit-craters 11  --no-ranker --all --limit-images 10
+
+
+
+[PER-IMAGE PROCESSING COSTS]
+----------------------------------------------------------------------
+  Stage                        |   Total(s) |   Mean(ms) |    Max(ms) |      %
+----------------------------------------------------------------------
+  model_inference (ONNX)       |      47.93 |    4792.70 |    4856.36 |   94.0%
+  input_normalization          |       0.02 |       2.03 |       2.12 |    0.0%
+  output_upscale               |       0.11 |      10.51 |      18.99 |    0.2%
+  ellipse_extraction           |       0.95 |      95.06 |     114.36 |    1.9%
+  ranker_scoring               |       0.00 |       0.00 |       0.00 |    0.0%
+  dem_gradient_creation        |       1.45 |     144.67 |     154.08 |    2.8%
+  image_loading                |       0.44 |      43.88 |      47.28 |    0.9%
+  resizing                     |       0.02 |       1.62 |       1.67 |    0.0%
+  (untracked overhead)         |       0.10 |      10.10 |            |    0.2%
+----------------------------------------------------------------------
+  TOTAL (end-to-end)           |      51.01 |    5100.59 |            | 100.0%
+
+  Images processed: 10
+  Average time per image: 5100.59 ms (5.10 s)
+
+--- MEMORY USAGE (RSS) ---
+Baseline:       44.9 MB
+Peak:           611.7 MB
+Mean during:    605.4 MB
+Min during:     548.9 MB
+Max during:     611.7 MB
+---------------------------
+
+Writing solution file: sol13-test-672.csv
+Total predictions to write: 10
+-----------------------------------------------------------
+crater@a6bda7be53c6:/app$ ./test_arm64_1620 --raw-dir /data/test 
+--model models/832_sd0.onnx  --input-res 1620 --tile-size 832x640 
+--solution-out sol13-test-672.csv --limit-craters 11  --no-ranker --all --limit-images 10
+
+[PER-IMAGE PROCESSING COSTS]
+----------------------------------------------------------------------
+  Stage                        |   Total(s) |   Mean(ms) |    Max(ms) |      %
+----------------------------------------------------------------------
+  model_inference (ONNX)       |      29.91 |    2991.21 |    3056.75 |   91.5%
+  input_normalization          |       0.02 |       2.03 |       2.11 |    0.1%
+  output_upscale               |       0.10 |      10.42 |      18.57 |    0.3%
+  ellipse_extraction           |       0.66 |      66.29 |      84.26 |    2.0%
+  ranker_scoring               |       0.00 |       0.00 |       0.00 |    0.0%
+  dem_gradient_creation        |       1.44 |     144.23 |     153.07 |    4.4%
+  image_loading                |       0.44 |      43.92 |      47.26 |    1.3%
+  resizing                     |       0.02 |       1.60 |       1.68 |    0.0%
+  (untracked overhead)         |       0.10 |       9.72 |            |    0.3%
+----------------------------------------------------------------------
+  TOTAL (end-to-end)           |      32.69 |    3269.43 |            | 100.0%
+
+  Images processed: 10
+  Average time per image: 3269.43 ms (3.27 s)
+
+--- MEMORY USAGE (RSS) ---
+Baseline:       44.6 MB
+Peak:           639.5 MB
+Mean during:    633.2 MB
+Min during:     576.7 MB
+Max during:     639.5 MB
+---------------------------------------------------------------------
